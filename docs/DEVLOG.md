@@ -2,6 +2,28 @@
 
 Newest entries at the top.
 
+## 2026-06-20 — Exercised the store against a real Postgres
+
+The store's SQL had only ever been parsed, never run — the worst kind of
+"done." Stood up Postgres 16 in Docker and wrote `crates/ferrox-store/tests/
+postgres.rs`: it recreates a minimal slice of the Airflow schema (`dag_run`,
+`task_instance`, `job`) plus our `ferrox_ti_state_audit`, then drives every
+`MetadataStore` method end to end and asserts on what actually landed in the
+tables.
+
+This caught nothing — all four tests passed first run — which is the point: the
+batched `UNNEST` UPDATE, the `CASE`-per-column timestamp logic, the audit
+transaction, the `ON CONFLICT` upserts, the jsonb `conf` round-trip, and both
+`NotFound` paths are now confirmed against a real engine, not assumed. The
+empty-batch no-op and the upsert-doesn't-duplicate invariants are covered too.
+
+The tests are `#[ignore]`d and read `DATABASE_URL`, so the no-database
+`cargo test --workspace` stays green; a new CI `integration` job runs them
+against a `postgres:16` service so they don't rot. Also ran the `ferrox` binary
+as a user would (`--help`, `--version`, subcommand arg validation, the
+not-yet-available exit) and confirmed `cargo build --release` (thin LTO) is
+clean.
+
 ## 2026-06-20 — ferrox-core and ferrox-store land
 
 Implemented `ferrox-core` in full. The Section 4 types map one-to-one to the

@@ -24,6 +24,9 @@ All notable changes to Ferrox are documented here. The format follows
   decisions.
 - `ferrox-store` adds an audit table, `ferrox_ti_state_audit`, written in the
   same transaction as every task-state transition.
+- Integration tests for `ferrox-store` against a real Postgres (gated
+  `#[ignore]`, driven by `DATABASE_URL`), plus a CI `integration` job that runs
+  them against a `postgres:16` service.
 - CI workflow running `cargo fmt --check`, `cargo clippy -- -D warnings`,
   `cargo test --workspace`, and `cargo build --release`.
 - Security-audit workflow running `cargo audit` on pushes to `main` and weekly.
