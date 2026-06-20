@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -193,43 +193,56 @@ impl DagDef {
     }
 
     fn assert_acyclic(&self) -> Result<(), CoreError> {
+        // Kahn's algorithm: repeatedly remove a task with no remaining
+        // dependencies. If any tasks are left over, they sit on a cycle.
+        // Parallel edges are de-duplicated first so a task that legitimately
+        // depends on another only once is not double-counted into a false
+        // cycle.
         let mut adjacency: HashMap<&TaskId, Vec<&TaskId>> = HashMap::new();
+        let mut in_degree: HashMap<&TaskId, usize> =
+            self.tasks.keys().map(|id| (id, 0usize)).collect();
+        let mut seen: HashSet<(&TaskId, &TaskId)> = HashSet::new();
+
         for (up, down) in &self.edges {
-            adjacency.entry(up).or_default().push(down);
-        }
-
-        // Iterative DFS with a three-state mark (unseen / on-stack / done).
-        // A node reached while still on the stack closes a cycle.
-        let mut on_stack: HashSet<&TaskId> = HashSet::new();
-        let mut done: HashSet<&TaskId> = HashSet::new();
-
-        for root in self.tasks.keys() {
-            if done.contains(root) {
+            if !seen.insert((up, down)) {
                 continue;
             }
-            let mut stack = vec![(root, false)];
-            while let Some((node, children_visited)) = stack.pop() {
-                if children_visited {
-                    on_stack.remove(node);
-                    done.insert(node);
-                    continue;
-                }
-                if done.contains(node) {
-                    continue;
-                }
-                on_stack.insert(node);
-                stack.push((node, true));
-                for next in adjacency.get(node).into_iter().flatten() {
-                    if on_stack.contains(next) {
-                        return Err(CoreError::Cycle {
-                            dag_id: self.dag_id.clone(),
-                            task: (*next).clone(),
-                        });
+            adjacency.entry(up).or_default().push(down);
+            if let Some(degree) = in_degree.get_mut(down) {
+                *degree += 1;
+            }
+        }
+
+        let mut ready: VecDeque<&TaskId> = in_degree
+            .iter()
+            .filter(|(_, &degree)| degree == 0)
+            .map(|(&id, _)| id)
+            .collect();
+
+        let mut settled = 0usize;
+        while let Some(node) = ready.pop_front() {
+            settled += 1;
+            for next in adjacency.get(node).into_iter().flatten() {
+                if let Some(degree) = in_degree.get_mut(next) {
+                    *degree -= 1;
+                    if *degree == 0 {
+                        ready.push_back(next);
                     }
-                    if !done.contains(next) {
-                        stack.push((next, false));
-                    }
                 }
+            }
+        }
+
+        if settled != self.tasks.len() {
+            let stuck = in_degree
+                .iter()
+                .filter(|(_, &degree)| degree > 0)
+                .map(|(&id, _)| id.clone())
+                .min();
+            if let Some(task) = stuck {
+                return Err(CoreError::Cycle {
+                    dag_id: self.dag_id.clone(),
+                    task,
+                });
             }
         }
         Ok(())
@@ -344,6 +357,64 @@ mod tests {
             ],
         );
         assert!(dag.is_ok());
+    }
+
+    #[test]
+    fn a_chain_of_diamonds_is_acyclic() {
+        // Reconvergent fan-out/fan-in at every level — the shape that trips up
+        // a naive DFS into redundant or exponential work.
+        let dag = DagDef::build(
+            "ladder",
+            Schedule::Manual,
+            epoch(),
+            vec![
+                task("a"),
+                task("b1"),
+                task("b2"),
+                task("c"),
+                task("d1"),
+                task("d2"),
+                task("e"),
+            ],
+            vec![
+                edge("a", "b1"),
+                edge("a", "b2"),
+                edge("b1", "c"),
+                edge("b2", "c"),
+                edge("c", "d1"),
+                edge("c", "d2"),
+                edge("d1", "e"),
+                edge("d2", "e"),
+            ],
+        );
+        assert!(dag.is_ok());
+    }
+
+    #[test]
+    fn duplicate_edges_are_not_a_cycle() {
+        let dag = DagDef::build(
+            "dupedges",
+            Schedule::Manual,
+            epoch(),
+            vec![task("a"), task("b")],
+            vec![edge("a", "b"), edge("a", "b")],
+        );
+        assert!(dag.is_ok(), "a parallel edge is redundant, not circular");
+    }
+
+    #[test]
+    fn a_cycle_among_disconnected_components_is_found() {
+        // One healthy component plus an isolated cycle; the cycle must still be
+        // reported even though other tasks settle cleanly.
+        let err = DagDef::build(
+            "mixed",
+            Schedule::Manual,
+            epoch(),
+            vec![task("ok1"), task("ok2"), task("x"), task("y")],
+            vec![edge("ok1", "ok2"), edge("x", "y"), edge("y", "x")],
+        )
+        .expect_err("x <-> y is a cycle");
+        assert!(matches!(err, CoreError::Cycle { .. }));
     }
 
     #[test]

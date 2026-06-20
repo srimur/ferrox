@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 use crate::ids::TaskId;
-use crate::state::TaskState;
+use crate::state::{DagRunState, TaskState};
 
 /// Errors raised when a domain invariant is violated.
 ///
@@ -13,6 +13,9 @@ use crate::state::TaskState;
 pub enum CoreError {
     #[error("illegal task-instance transition: {from} -> {to}")]
     InvalidTransition { from: TaskState, to: TaskState },
+
+    #[error("illegal dag-run transition: {from} -> {to}")]
+    InvalidRunTransition { from: DagRunState, to: DagRunState },
 
     #[error("unknown state {0:?}")]
     UnknownState(String),

@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::error::CoreError;
 use crate::state::{DagRunState, RunType};
 
 /// One scheduled (or manually triggered) execution of a DAG. Mirrors `dag_run`.
@@ -43,15 +44,19 @@ impl DagRun {
         self
     }
 
-    /// Move the run to `state`. A terminal run is immutable: re-deciding a
-    /// finished run's outcome is always a bug, so it is rejected rather than
-    /// silently ignored.
-    pub fn set_state(&mut self, state: DagRunState) -> bool {
-        if self.state.is_terminal() {
-            return false;
+    /// Move the run to `state`, validating it against the run state machine.
+    /// A terminal run is immutable, and only the legal edges are accepted —
+    /// re-deciding a finished run, or moving it backwards, is always a bug, so
+    /// it surfaces as an error rather than a silently dropped mutation.
+    pub fn transition_to(&mut self, state: DagRunState) -> Result<(), CoreError> {
+        if !self.state.can_transition_to(state) {
+            return Err(CoreError::InvalidRunTransition {
+                from: self.state,
+                to: state,
+            });
         }
         self.state = state;
-        true
+        Ok(())
     }
 }
 
@@ -78,11 +83,33 @@ mod tests {
     }
 
     #[test]
-    fn a_terminal_run_will_not_change_state() {
+    fn a_run_walks_its_state_machine() {
         let mut run = DagRun::new("r1", "etl", date(), RunType::Scheduled);
-        assert!(run.set_state(DagRunState::Running));
-        assert!(run.set_state(DagRunState::Success));
-        assert!(!run.set_state(DagRunState::Failed));
+        run.transition_to(DagRunState::Running).unwrap();
+        run.transition_to(DagRunState::Success).unwrap();
         assert_eq!(run.state, DagRunState::Success);
+    }
+
+    #[test]
+    fn a_terminal_run_rejects_further_transitions() {
+        let mut run = DagRun::new("r1", "etl", date(), RunType::Scheduled);
+        run.transition_to(DagRunState::Running).unwrap();
+        run.transition_to(DagRunState::Success).unwrap();
+        let err = run.transition_to(DagRunState::Failed).unwrap_err();
+        assert_eq!(
+            err,
+            CoreError::InvalidRunTransition {
+                from: DagRunState::Success,
+                to: DagRunState::Failed,
+            }
+        );
+        assert_eq!(run.state, DagRunState::Success);
+    }
+
+    #[test]
+    fn a_run_cannot_move_backwards() {
+        let mut run = DagRun::new("r1", "etl", date(), RunType::Scheduled);
+        run.transition_to(DagRunState::Running).unwrap();
+        assert!(run.transition_to(DagRunState::Queued).is_err());
     }
 }

@@ -243,6 +243,40 @@ async fn batched_transitions_update_state_timestamps_and_audit() {
 
 #[tokio::test]
 #[ignore = "requires a live Postgres via DATABASE_URL"]
+async fn a_transition_for_a_missing_instance_is_rejected_and_audits_nothing() {
+    let pool = fresh_schema().await;
+    let store = PgStore::from_pool(pool.clone());
+
+    // No task_instance row exists for "ghost".
+    let batch = vec![TaskTransition {
+        dag_id: DAG_ID.to_owned(),
+        task_id: "ghost".to_owned(),
+        run_id: RUN_ID.to_owned(),
+        map_index: -1,
+        to: TaskState::Queued,
+        at: ts(1),
+    }];
+
+    let err = store.apply_transitions(&batch).await.unwrap_err();
+    assert!(matches!(
+        err,
+        StoreError::TransitionGap {
+            requested: 1,
+            applied: 0
+        }
+    ));
+
+    // The transaction rolled back: no audit row leaked.
+    let audit_count: i64 = sqlx::query("SELECT count(*) AS n FROM ferrox_ti_state_audit")
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .get("n");
+    assert_eq!(audit_count, 0);
+}
+
+#[tokio::test]
+#[ignore = "requires a live Postgres via DATABASE_URL"]
 async fn heartbeat_updates_an_existing_job_and_reports_missing_ones() {
     let pool = fresh_schema().await;
     let store = PgStore::from_pool(pool.clone());

@@ -12,6 +12,10 @@
 //! expressed by deriving [`serde`] on these types; the crates that own those
 //! concerns map to and from them.
 
+// Production code surfaces failure through `Result`/`CoreError`; `unwrap` and
+// `expect` are reserved for tests, where they are the point.
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
+
 mod dag;
 mod error;
 mod ids;

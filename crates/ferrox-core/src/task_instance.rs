@@ -94,9 +94,54 @@ impl TaskInstance {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     fn at(secs: i64) -> DateTime<Utc> {
         DateTime::from_timestamp(secs, 0).unwrap()
+    }
+
+    fn any_task_state() -> impl Strategy<Value = TaskState> {
+        prop_oneof![
+            Just(TaskState::Scheduled),
+            Just(TaskState::Queued),
+            Just(TaskState::Running),
+            Just(TaskState::Success),
+            Just(TaskState::Failed),
+            Just(TaskState::UpForRetry),
+            Just(TaskState::UpstreamFailed),
+        ]
+    }
+
+    proptest! {
+        /// Whatever sequence of transitions is thrown at a task instance, the
+        /// state machine's invariants hold: only legal edges are accepted,
+        /// rejected ones leave the instance untouched, a terminal state is a
+        /// dead end, and the try counter never goes backwards (§8.1).
+        #[test]
+        fn random_transition_sequences_preserve_invariants(
+            targets in prop::collection::vec(any_task_state(), 0..32)
+        ) {
+            let mut ti = TaskInstance::new("t", "d", "r");
+            for (i, to) in targets.into_iter().enumerate() {
+                let from = ti.state;
+                let prev_try = ti.try_number;
+                let result = ti.transition_to(to, at(i as i64));
+
+                if from.can_transition_to(to) {
+                    prop_assert!(result.is_ok());
+                    prop_assert_eq!(ti.state, to);
+                    prop_assert!(ti.try_number >= prev_try);
+                } else {
+                    prop_assert!(result.is_err());
+                    prop_assert_eq!(ti.state, from, "a rejected transition must not mutate state");
+                    prop_assert_eq!(ti.try_number, prev_try);
+                }
+
+                if from.is_terminal() {
+                    prop_assert_eq!(ti.state, from, "a terminal state must never be left");
+                }
+            }
+        }
     }
 
     fn run_to_success(ti: &mut TaskInstance) {

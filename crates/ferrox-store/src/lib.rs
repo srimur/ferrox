@@ -11,6 +11,9 @@
 //! behind this trait is what makes the scheduler testable against an in-memory
 //! fake and the storage backend swappable (Postgres today, MySQL in Phase 2).
 
+// Errors flow through `StoreError`; `unwrap`/`expect` are for tests only.
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
+
 mod error;
 mod postgres;
 mod record;

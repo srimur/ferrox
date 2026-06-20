@@ -75,7 +75,8 @@ const APPLY_TRANSITIONS: &str = "UPDATE task_instance AS ti SET \
      FROM UNNEST($1::text[], $2::text[], $3::text[], $4::int[], $5::text[], $6::timestamptz[]) \
      AS v(dag_id, task_id, run_id, map_index, state, at) \
      WHERE ti.dag_id = v.dag_id AND ti.task_id = v.task_id \
-       AND ti.run_id = v.run_id AND ti.map_index = v.map_index";
+       AND ti.run_id = v.run_id AND ti.map_index = v.map_index \
+     RETURNING ti.task_id";
 
 const AUDIT_TRANSITIONS: &str =
     "INSERT INTO ferrox_ti_state_audit (dag_id, task_id, run_id, map_index, state, changed_at) \
@@ -201,13 +202,19 @@ impl MetadataStore for PgStore {
     }
 
     async fn insert_task_instance(&self, ti: &TaskInstance) -> Result<(), StoreError> {
+        // Airflow's try_number column is a signed int; surface an overflow as
+        // corrupt data rather than silently clamping it.
+        let try_number = i32::try_from(ti.try_number).map_err(|_| StoreError::Corrupt {
+            column: "try_number",
+            detail: format!("{} exceeds i32::MAX", ti.try_number),
+        })?;
         sqlx::query(UPSERT_TASK_INSTANCE)
             .bind(&ti.dag_id)
             .bind(&ti.task_id)
             .bind(&ti.run_id)
             .bind(ti.map_index)
             .bind(ti.state.as_str())
-            .bind(i32::try_from(ti.try_number).unwrap_or(i32::MAX))
+            .bind(try_number)
             .bind(&ti.hostname)
             .bind(ti.queued_at)
             .bind(ti.started_at)
@@ -237,17 +244,27 @@ impl MetadataStore for PgStore {
         let cols = transition_columns(transitions);
 
         // State write and audit insert share a transaction: a task instance is
-        // never updated without a matching audit row, and vice versa.
+        // never updated without a matching audit row, and vice versa. The
+        // UPDATE returns one row per instance it actually touched; if that is
+        // fewer than we asked for, some transition targeted a task instance
+        // that does not exist, so we abort (dropping `tx` rolls back) rather
+        // than audit a change that never happened.
         let mut tx = self.pool.begin().await?;
-        sqlx::query(APPLY_TRANSITIONS)
+        let applied = sqlx::query(APPLY_TRANSITIONS)
             .bind(&cols.dag_ids)
             .bind(&cols.task_ids)
             .bind(&cols.run_ids)
             .bind(&cols.map_indexes)
             .bind(&cols.states)
             .bind(&cols.ats)
-            .execute(&mut *tx)
+            .fetch_all(&mut *tx)
             .await?;
+        if applied.len() != transitions.len() {
+            return Err(StoreError::TransitionGap {
+                requested: transitions.len(),
+                applied: applied.len(),
+            });
+        }
         sqlx::query(AUDIT_TRANSITIONS)
             .bind(&cols.dag_ids)
             .bind(&cols.task_ids)

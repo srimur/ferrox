@@ -61,12 +61,6 @@ impl TaskState {
     pub fn is_terminal(self) -> bool {
         matches!(self, TaskState::Success | TaskState::UpstreamFailed)
     }
-
-    /// Whether this state counts as a failure for downstream propagation and
-    /// dependency evaluation.
-    pub fn is_failure(self) -> bool {
-        matches!(self, TaskState::Failed | TaskState::UpstreamFailed)
-    }
 }
 
 impl fmt::Display for TaskState {
@@ -114,6 +108,18 @@ impl DagRunState {
 
     pub fn is_terminal(self) -> bool {
         matches!(self, DagRunState::Success | DagRunState::Failed)
+    }
+
+    /// Whether a run may move from `self` to `to`. A run is created `Queued`,
+    /// starts `Running`, and ends `Success` or `Failed`; a `Queued` run can
+    /// also fail outright (e.g. its DAG went missing). Terminal states are
+    /// final.
+    pub fn can_transition_to(self, to: DagRunState) -> bool {
+        use DagRunState::*;
+        matches!(
+            (self, to),
+            (Queued, Running) | (Queued, Failed) | (Running, Success) | (Running, Failed)
+        )
     }
 }
 

@@ -24,4 +24,7 @@ pub enum StoreError {
         column: &'static str,
         detail: String,
     },
+
+    #[error("{requested} transitions submitted but only {applied} matched a task instance")]
+    TransitionGap { requested: usize, applied: usize },
 }
