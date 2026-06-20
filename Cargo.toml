@@ -1,0 +1,45 @@
+[workspace]
+resolver = "2"
+members = [
+    "ferrox",
+    "crates/ferrox-core",
+    "crates/ferrox-store",
+    "crates/ferrox-parser",
+    "crates/ferrox-executor",
+    "crates/ferrox-scheduler",
+    "crates/ferrox-api",
+    "crates/ferrox-migrate",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/ferrox/ferrox"
+rust-version = "1.85"
+
+# Shared dependency versions. Crates opt in by name with `workspace = true`,
+# which keeps versions aligned across the workspace and the lockfile small.
+[workspace.dependencies]
+ferrox-core = { path = "crates/ferrox-core" }
+ferrox-store = { path = "crates/ferrox-store" }
+ferrox-parser = { path = "crates/ferrox-parser" }
+ferrox-executor = { path = "crates/ferrox-executor" }
+ferrox-scheduler = { path = "crates/ferrox-scheduler" }
+ferrox-api = { path = "crates/ferrox-api" }
+
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+async-trait = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "chrono", "json", "uuid", "macros"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+tracing = "0.1"
+
+[profile.release]
+# Infrastructure binary: prefer a small, fast, debuggable artifact over build speed.
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"

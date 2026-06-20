@@ -1,0 +1,6 @@
+/target/
+.env
+ferrox.toml
+*.log
+.DS_Store
+__pycache__/

@@ -1,0 +1,10 @@
+[package]
+name = "ferrox-api"
+description = "Axum HTTP server implementing the Airflow stable REST API (v1) surface"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]

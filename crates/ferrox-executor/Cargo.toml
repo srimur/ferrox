@@ -1,0 +1,10 @@
+[package]
+name = "ferrox-executor"
+description = "Executor adapter trait and Local/Celery/Kubernetes backends for dispatching task instances"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]

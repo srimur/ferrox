@@ -1,0 +1,16 @@
+[package]
+name = "ferrox"
+description = "Ferrox CLI entrypoint: start the scheduler, validate and migrate an Airflow deployment"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+default-run = "ferrox"
+
+[[bin]]
+name = "ferrox"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
