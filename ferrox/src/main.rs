@@ -46,11 +46,37 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Start { .. } | Command::Validate { .. } | Command::Migrate { .. } => {
-            // The scheduler, validator, and migrator crates are still being
-            // built out; fail loudly rather than pretend to do the work.
+        Command::Validate { db } => validate(&db),
+        Command::Start { .. } | Command::Migrate { .. } => {
+            // The scheduler and the ferrox.toml generator are still being built
+            // out; fail loudly rather than pretend to do the work.
             eprintln!("ferrox: this command is not available in the current build yet");
             ExitCode::from(64)
+        }
+    }
+}
+
+fn validate(db: &str) -> ExitCode {
+    let runtime = match tokio::runtime::Runtime::new() {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            eprintln!("ferrox: could not start async runtime: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    match runtime.block_on(ferrox_migrate::validate_schema(db)) {
+        Ok(report) => {
+            println!("{report}");
+            if report.is_compatible() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            }
+        }
+        Err(err) => {
+            eprintln!("ferrox: validation failed: {err}");
+            ExitCode::FAILURE
         }
     }
 }

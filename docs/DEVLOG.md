@@ -2,6 +2,50 @@
 
 Newest entries at the top.
 
+## 2026-06-20 — Review fixes, and the first command that actually does something
+
+Acted on a code review of core and store. The substantive fixes:
+
+- **Audit honesty.** `apply_transitions` previously wrote audit rows
+  unconditionally — if a transition targeted a task instance that didn't exist,
+  the `UPDATE` matched nothing but the audit still claimed the change. Now the
+  `UPDATE ... RETURNING` reports which instances were actually touched; if that
+  count is short, the batch aborts with `TransitionGap` and the transaction
+  rolls back, so the audit log can't lie. Verified against real Postgres with a
+  test that fires a transition at a ghost task and asserts zero audit rows.
+- **DagRun mutation became a `Result`.** `set_state` returned a `bool` nobody
+  was forced to check; it's now `transition_to` validated by a `DagRunState`
+  machine, consistent with `TaskInstance`.
+- **Cycle detection rewritten to Kahn's algorithm.** The old iterative DFS was
+  correct but hard to audit; Kahn's is clearer and, as a bonus, de-duplicates
+  parallel edges so a task depended on twice isn't mistaken for a cycle. Added
+  adversarial tests (diamond chains, parallel edges, disconnected cycles).
+- **Enforced the standards with lints.** `deny(clippy::unwrap_used,
+  clippy::expect_used)` on non-test code, so "no unwrap outside tests" is now
+  the compiler's job, not the reviewer's. Also mapped the `try_number` write
+  overflow to `Corrupt` instead of clamping, and deleted the genuinely-unused
+  `TaskState::is_failure`.
+- **proptest** over random transition sequences, covering the §8.1 invariants
+  (terminal states never escape, rejected transitions don't mutate, try-number
+  never decreases) far more thoroughly than the example tests.
+
+Then made Ferrox do something real for the first time: implemented
+`ferrox-migrate::validate_schema`, which connects to a live Airflow database and
+reports whether every table and column the store touches is present, and wired
+it to `ferrox validate --db <url>`. Ran it against a real Postgres — it
+correctly reports a missing `job` table (exit 1), passes a complete schema (exit
+0), and fails fast on an unreachable host (10s connect timeout rather than the
+30s pool default). This is the first end-to-end user-facing path.
+
+Why migrate's *validate* and not its ferrox.toml generator: validation is the
+gate the operator runs first (§12.3), it exercises the store's schema
+assumptions against reality, and it's independently useful today. The toml
+generator is the other half and waits.
+
+Everything green: clippy `-D warnings` (now including the unwrap lints), fmt,
+`cargo test --workspace` (35 core tests), and the DB-backed suites — 5 store + 3
+migrate integration tests against Postgres 16.
+
 ## 2026-06-20 — Exercised the store against a real Postgres
 
 The store's SQL had only ever been parsed, never run — the worst kind of

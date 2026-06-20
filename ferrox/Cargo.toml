@@ -13,4 +13,6 @@ name = "ferrox"
 path = "src/main.rs"
 
 [dependencies]
+ferrox-migrate = { workspace = true }
 clap = { version = "4", features = ["derive"] }
+tokio = { workspace = true }

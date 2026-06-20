@@ -27,6 +27,7 @@ ferrox-parser = { path = "crates/ferrox-parser" }
 ferrox-executor = { path = "crates/ferrox-executor" }
 ferrox-scheduler = { path = "crates/ferrox-scheduler" }
 ferrox-api = { path = "crates/ferrox-api" }
+ferrox-migrate = { path = "crates/ferrox-migrate" }
 
 chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
 serde = { version = "1", features = ["derive"] }
